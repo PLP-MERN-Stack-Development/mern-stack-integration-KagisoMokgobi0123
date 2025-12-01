@@ -1,78 +1,51 @@
-// server.js - Main server file for the MERN blog application
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
+import { connectDB } from "./config/db.js";
+import { withAuth } from "@clerk/clerk-sdk-node"; // Use Clerk's built-in middleware
+import postRoutes from "./routes/post.js";
+import categoryRoutes from "./routes/category.js";
+import commentRoutes from "./routes/comment.js";
+import errorHandler from "./middleware/errorHandler.js";
+import notFound from "./middleware/notFound.js";
+import { createUploadFolder } from "./utils/createUploadFolder.js";
 
-// Import required modules
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const path = require('path');
-
-// Import routes
-const postRoutes = require('./routes/posts');
-const categoryRoutes = require('./routes/categories');
-const authRoutes = require('./routes/auth');
-
-// Load environment variables
 dotenv.config();
 
-// Initialize Express app
+// Initialize Clerk SDK with your secret key from the .env
+// Clerk initialization is handled via withAuth middleware in the routes
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Log requests in development mode
-if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
-    next();
-  });
-}
-
-// API routes
-app.use('/api/posts', postRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/auth', authRoutes);
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('MERN Blog API is running');
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.statusCode || 500).json({
-    success: false,
-    error: err.message || 'Server Error',
-  });
-});
-
-// Connect to MongoDB and start server
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
+// Middleware setup
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
   })
-  .catch((err) => {
-    console.error('Failed to connect to MongoDB', err);
-    process.exit(1);
+);
+
+app.use(express.json());
+
+// Ensure upload folder exists
+createUploadFolder();
+
+// Use Clerk's built-in authentication middleware for specific routes (i.e. protected routes)
+app.use("/api/posts", withAuth(), postRoutes); // Protect all post routes
+app.use("/api/categories", withAuth(), categoryRoutes); // Protect category routes as well
+app.use("/api/comments", withAuth(), commentRoutes); // Protect comment routes
+
+// Static file serving for uploaded files
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+// Error handling middleware (must be last)
+app.use(notFound);
+app.use(errorHandler);
+
+// Start the server only after database connection
+connectDB().then(() => {
+  app.listen(process.env.PORT, () => {
+    console.log(`Server running at http://localhost:${process.env.PORT}`);
   });
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Promise Rejection:', err);
-  // Close server & exit process
-  process.exit(1);
 });
-
-module.exports = app; 
